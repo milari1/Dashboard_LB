@@ -3,7 +3,7 @@ import json
 import os
 import sys
 import tempfile
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 import pandas as pd
@@ -67,14 +67,53 @@ def drive_item_urls(drive_id: str, file_path: str) -> Tuple[str, str]:
     return base, f"{base}:/content"
 
 
-def canonical_row_json(row: Dict[str, Any]) -> str:
-    # Normalize types for hashing/storage.
-    def _default(o: Any) -> str:
-        if isinstance(o, datetime):
-            return o.isoformat()
-        return str(o)
+def _normalize_json_value(value: Any) -> Any:
+    # Ensure everything is JSON-serializable.
+    # Pandas/Excel often produce pandas.Timestamp, NaT, and NaN.
+    if value is None:
+        return None
 
-    return json.dumps(row, sort_keys=True, ensure_ascii=False, default=_default)
+    # Handle pandas missing values (NaN/NaT)
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+
+    # pandas.Timestamp (and subclasses)
+    if isinstance(value, pd.Timestamp):
+        # Convert to ISO 8601 string
+        return value.to_pydatetime().isoformat()
+
+    # datetime/date
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+
+    # Convert numpy scalars to python scalars when present
+    try:
+        import numpy as np  # type: ignore
+
+        if isinstance(value, np.generic):
+            return value.item()
+    except Exception:
+        pass
+
+    # Recurse collections
+    if isinstance(value, dict):
+        return {str(k): _normalize_json_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_json_value(v) for v in value]
+
+    return value
+
+
+def normalize_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {str(k): _normalize_json_value(v) for k, v in row.items()}
+
+
+def canonical_row_json(row: Dict[str, Any]) -> str:
+    normalized = normalize_row(row)
+    return json.dumps(normalized, sort_keys=True, ensure_ascii=False)
 
 
 def row_hash(row_json: str) -> str:
@@ -144,7 +183,8 @@ def upsert_rows(conn, import_id: int, sheet_name: str, rows: Iterable[Dict[str, 
     count = 0
     with conn.cursor() as cur:
         for idx, row in enumerate(rows):
-            row_json = canonical_row_json(row)
+            normalized = normalize_row(row)
+            row_json = canonical_row_json(normalized)
             h = row_hash(row_json)
             cur.execute(
                 """
@@ -158,7 +198,7 @@ def upsert_rows(conn, import_id: int, sheet_name: str, rows: Iterable[Dict[str, 
                   data = EXCLUDED.data,
                   updated_at = now()
                 """,
-                (h, import_id, sheet_name, idx, psycopg2.extras.Json(row)),
+                (h, import_id, sheet_name, idx, psycopg2.extras.Json(normalized)),
             )
             count += 1
     conn.commit()
