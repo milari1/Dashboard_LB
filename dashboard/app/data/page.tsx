@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Search, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
@@ -13,11 +13,7 @@ export default function DataPage() {
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
 
-  useEffect(() => {
-    fetchSales();
-  }, [page, search]);
-
-  const fetchSales = async () => {
+  const fetchSales = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -35,7 +31,11 @@ export default function DataPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, search]);
+
+  useEffect(() => {
+    fetchSales();
+  }, [fetchSales]);
 
   const handleSearch = () => {
     setSearch(searchInput);

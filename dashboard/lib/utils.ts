@@ -47,3 +47,8 @@ export function getPreviousMonth(): string {
   date.setMonth(date.getMonth() - 1);
   return date.toLocaleString('en-US', { month: 'long' });
 }
+
+export function calculatePercentageChange(current: number, previous: number): number {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}

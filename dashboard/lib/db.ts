@@ -17,9 +17,3 @@ export function formatNumber(num: number | null | undefined): string {
   if (num === null || num === undefined) return '0';
   return new Intl.NumberFormat('en-US').format(num);
 }
-
-// Helper function to calculate percentage change
-export function calculatePercentageChange(current: number, previous: number): number {
-  if (previous === 0) return current > 0 ? 100 : 0;
-  return ((current - previous) / previous) * 100;
-}
