@@ -197,6 +197,17 @@ def batch_upsert_sales(conn, batch: List[Tuple[Dict[str, Any], str]]) -> Tuple[i
     if not batch:
         return 0, 0
 
+    # Deduplicate within batch (keep last occurrence of each hash)
+    seen = {}
+    for db_row, source_hash in batch:
+        seen[source_hash] = db_row
+    
+    unique_batch = [(db_row, hash_val) for hash_val, db_row in seen.items()]
+    
+    if len(unique_batch) < len(batch):
+        dupes = len(batch) - len(unique_batch)
+        print(f"    ⚠️  Found {dupes} duplicate rows in batch, keeping unique only")
+
     with conn.cursor() as cur:
         # Create temp table
         cur.execute(
@@ -208,7 +219,7 @@ def batch_upsert_sales(conn, batch: List[Tuple[Dict[str, Any], str]]) -> Tuple[i
 
         # Bulk insert into temp table
         values = []
-        for db_row, source_hash in batch:
+        for db_row, source_hash in unique_batch:
             values.append({
                 **db_row,
                 "source_row_hash": source_hash,
@@ -274,24 +285,11 @@ def batch_upsert_sales(conn, batch: List[Tuple[Dict[str, Any], str]]) -> Tuple[i
             """
         )
 
-        # Count inserts vs updates
-        cur.execute("SELECT COUNT(*) FROM temp_sales")
-        total = cur.fetchone()[0]
-
-        cur.execute(
-            """
-            SELECT COUNT(*)
-            FROM temp_sales t
-            WHERE NOT EXISTS (
-              SELECT 1 FROM sales s WHERE s.source_row_hash = t.source_row_hash
-            )
-            """
-        )
-        # Actually we can't know exactly after merge, but we can estimate
-        # For now just return total processed
+        # Return the count of unique rows processed
+        processed = len(unique_batch)
         
     conn.commit()
-    return total, 0  # We'll track at batch level
+    return processed, 0
 
 
 def log_sync(conn, rows_processed: int, rows_inserted: int, rows_updated: int,
@@ -359,6 +357,7 @@ def main() -> int:
         rows_processed = 0
         rows_inserted = 0
         rows_updated = 0
+        total_excel_rows = 0
 
         BATCH_SIZE = 10000
         batch = []
@@ -370,25 +369,29 @@ def main() -> int:
             source_hash = row_hash(excel_row)
 
             batch.append((db_row, source_hash))
+            total_excel_rows += 1
 
             if len(batch) >= BATCH_SIZE:
                 inserted, updated = batch_upsert_sales(conn, batch)
-                rows_processed += len(batch)
+                rows_processed += inserted
                 rows_inserted += inserted
                 rows_updated += updated
-                print(f"  Processed {rows_processed:,} rows...")
+                print(f"  Processed {total_excel_rows:,} Excel rows → {rows_processed:,} unique DB rows")
                 batch = []
 
         # Process remaining rows
         if batch:
             inserted, updated = batch_upsert_sales(conn, batch)
-            rows_processed += len(batch)
+            rows_processed += inserted
             rows_inserted += inserted
             rows_updated += updated
 
         log_sync(conn, rows_processed, rows_inserted, rows_updated, etag, last_modified)
 
-        print(f"✅ Sync complete: {rows_processed:,} rows processed")
+        duplicates_found = total_excel_rows - rows_processed
+        print(f"✅ Sync complete: {total_excel_rows:,} Excel rows → {rows_processed:,} unique DB rows")
+        if duplicates_found > 0:
+            print(f"   ({duplicates_found:,} duplicate rows skipped)")
         return 0
 
     except Exception as e:
