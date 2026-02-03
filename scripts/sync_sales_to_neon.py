@@ -4,7 +4,7 @@ import os
 import sys
 import tempfile
 from datetime import date, datetime
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import psycopg2
@@ -29,7 +29,12 @@ def get_graph_token(tenant_id: str, client_id: str, client_secret: str) -> str:
         "scope": "https://graph.microsoft.com/.default",
     }
     resp = requests.post(url, data=data, timeout=60)
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        try:
+            details = resp.json()
+        except Exception:
+            details = {"raw": resp.text}
+        raise RuntimeError(f"Token request failed: {resp.status_code} {details}")
     return resp.json()["access_token"]
 
 
@@ -46,176 +51,217 @@ def graph_download(token: str, url: str) -> bytes:
 
 
 def resolve_site_id(token: str, hostname: str, site_path: str) -> str:
-    # Example: https://graph.microsoft.com/v1.0/sites/mikanacatering.sharepoint.com:/sites/MikanaHO
     url = f"https://graph.microsoft.com/v1.0/sites/{hostname}:{site_path}"
     data = graph_get(token, url)
     return data["id"]
 
 
 def resolve_default_drive_id(token: str, site_id: str) -> str:
-    # Default document library for the site
     url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
     data = graph_get(token, url)
     return data["id"]
 
 
 def drive_item_urls(drive_id: str, file_path: str) -> Tuple[str, str]:
-    # file_path is relative to the document library root.
-    # Keep slashes but URL-encode spaces and special chars.
     encoded_path = quote(file_path.strip("/"), safe="/")
     base = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{encoded_path}"
     return base, f"{base}:/content"
 
 
-def _normalize_json_value(value: Any) -> Any:
-    # Ensure everything is JSON-serializable.
-    # Pandas/Excel often produce pandas.Timestamp, NaT, and NaN.
+def _normalize_value(value: Any) -> Any:
+    """Convert pandas/numpy types to Python native types."""
     if value is None:
         return None
 
-    # Handle pandas missing values (NaN/NaT)
     try:
         if pd.isna(value):
             return None
     except Exception:
         pass
 
-    # pandas.Timestamp (and subclasses)
     if isinstance(value, pd.Timestamp):
-        # Convert to ISO 8601 string
-        return value.to_pydatetime().isoformat()
+        return value.to_pydatetime()
 
-    # datetime/date
     if isinstance(value, (datetime, date)):
-        return value.isoformat()
+        return value
 
-    # Convert numpy scalars to python scalars when present
     try:
-        import numpy as np  # type: ignore
-
+        import numpy as np
         if isinstance(value, np.generic):
             return value.item()
     except Exception:
         pass
 
-    # Recurse collections
-    if isinstance(value, dict):
-        return {str(k): _normalize_json_value(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_normalize_json_value(v) for v in value]
-
     return value
 
 
-def normalize_row(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {str(k): _normalize_json_value(v) for k, v in row.items()}
+def row_to_dict(row: pd.Series) -> Dict[str, Any]:
+    """Convert a pandas row to a dict with normalized values."""
+    return {str(k): _normalize_value(v) for k, v in row.items()}
 
 
-def canonical_row_json(row: Dict[str, Any]) -> str:
-    normalized = normalize_row(row)
-    return json.dumps(normalized, sort_keys=True, ensure_ascii=False)
-
-
-def row_hash(row_json: str) -> str:
-    return hashlib.sha256(row_json.encode("utf-8")).hexdigest()
+def row_hash(row_dict: Dict[str, Any]) -> str:
+    """Generate a stable hash for deduplication."""
+    canonical = json.dumps(row_dict, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def ensure_tables(conn) -> None:
+    """Create sales table and sync_log if they don't exist."""
     with conn.cursor() as cur:
         cur.execute(
             """
-            CREATE TABLE IF NOT EXISTS sales_xlsx_imports (
-              id                  BIGSERIAL PRIMARY KEY,
-              imported_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-              source_file_path    TEXT NOT NULL,
-              etag                TEXT,
-              file_last_modified  TIMESTAMPTZ
+            -- Drop old generic tables if they exist
+            DROP TABLE IF EXISTS sales_xlsx_rows CASCADE;
+            DROP TABLE IF EXISTS sales_xlsx_imports CASCADE;
+
+            -- Create the sales table
+            CREATE TABLE IF NOT EXISTS sales (
+              id                              BIGSERIAL PRIMARY KEY,
+              branch                          TEXT,
+              sale_date                       DATE,
+              client                          TEXT,
+              items                           TEXT,
+              qty                             NUMERIC(12, 3),
+              unit_of_measure                 TEXT,
+              unit_price_usd                  NUMERIC(12, 2),
+              price_subtotal_with_tax         NUMERIC(12, 2),
+              price_subtotal_with_tax_usd     NUMERIC(12, 2),
+              rate                            NUMERIC(12, 4),
+              invoice_number                  TEXT,
+              guest_number                    TEXT,
+              table_number                    TEXT,
+              month                           TEXT,
+              tax                             NUMERIC(12, 2),
+              category                        TEXT,
+              group_name                      TEXT,
+              barcode                         TEXT,
+              
+              source_row_hash                 TEXT UNIQUE NOT NULL,
+              last_synced_at                  TIMESTAMPTZ DEFAULT now(),
+              created_at                      TIMESTAMPTZ DEFAULT now(),
+              updated_at                      TIMESTAMPTZ DEFAULT now()
             );
 
-            CREATE TABLE IF NOT EXISTS sales_xlsx_rows (
-              row_hash     TEXT PRIMARY KEY,
-              import_id    BIGINT NOT NULL REFERENCES sales_xlsx_imports(id) ON DELETE CASCADE,
-              sheet_name   TEXT NOT NULL,
-              row_index    INT NOT NULL,
-              data         JSONB NOT NULL,
-              created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-              updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-            );
+            CREATE INDEX IF NOT EXISTS sales_branch_idx ON sales(branch);
+            CREATE INDEX IF NOT EXISTS sales_date_idx ON sales(sale_date);
+            CREATE INDEX IF NOT EXISTS sales_invoice_idx ON sales(invoice_number);
+            CREATE INDEX IF NOT EXISTS sales_category_idx ON sales(category);
+            CREATE INDEX IF NOT EXISTS sales_month_idx ON sales(month);
 
-            CREATE INDEX IF NOT EXISTS sales_xlsx_rows_import_id_idx ON sales_xlsx_rows(import_id);
+            CREATE TABLE IF NOT EXISTS sync_log (
+              id                BIGSERIAL PRIMARY KEY,
+              synced_at         TIMESTAMPTZ DEFAULT now(),
+              rows_processed    INT NOT NULL DEFAULT 0,
+              rows_inserted     INT NOT NULL DEFAULT 0,
+              rows_updated      INT NOT NULL DEFAULT 0,
+              file_etag         TEXT,
+              file_modified     TIMESTAMPTZ,
+              status            TEXT NOT NULL DEFAULT 'success',
+              error_message     TEXT
+            );
             """
         )
     conn.commit()
 
 
-def get_latest_etag(conn, source_file_path: str) -> Optional[str]:
+def map_excel_to_db(excel_row: Dict[str, Any]) -> Dict[str, Any]:
+    """Map Excel column names to database column names."""
+    # Excel columns (as they appear in your file)
+    return {
+        "branch": excel_row.get("Branch"),
+        "sale_date": excel_row.get("Date"),
+        "client": excel_row.get("Client"),
+        "items": excel_row.get("Items"),
+        "qty": excel_row.get("Qty"),
+        "unit_of_measure": excel_row.get("Unit of Measure"),
+        "unit_price_usd": excel_row.get("Unit Price $"),
+        "price_subtotal_with_tax": excel_row.get("Price Subtotal with Tax"),
+        "price_subtotal_with_tax_usd": excel_row.get("Price Subtotal with Tax $"),
+        "rate": excel_row.get("Rate"),
+        "invoice_number": excel_row.get("Invoice Number"),
+        "guest_number": excel_row.get("Guest Number"),
+        "table_number": excel_row.get("Table Number"),
+        "month": excel_row.get("Month"),
+        "tax": excel_row.get("Tax"),
+        "category": excel_row.get("Category"),
+        "group_name": excel_row.get("Group"),
+        "barcode": excel_row.get("Barcode"),
+    }
+
+
+def upsert_sales_row(conn, db_row: Dict[str, Any], source_hash: str) -> bool:
+    """
+    Insert or update a sales row.
+    Returns True if inserted, False if updated.
+    """
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT etag
-            FROM sales_xlsx_imports
-            WHERE source_file_path = %s
-            ORDER BY imported_at DESC
-            LIMIT 1
-            """,
-            (source_file_path,),
-        )
-        row = cur.fetchone()
-        return row[0] if row else None
-
-
-def insert_import(conn, source_file_path: str, etag: Optional[str], file_last_modified: Optional[str]) -> int:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO sales_xlsx_imports (source_file_path, etag, file_last_modified)
-            VALUES (%s, %s, %s)
-            RETURNING id
-            """,
-            (source_file_path, etag, file_last_modified),
-        )
-        import_id = cur.fetchone()[0]
-    conn.commit()
-    return int(import_id)
-
-
-def upsert_rows(conn, import_id: int, sheet_name: str, rows: Iterable[Dict[str, Any]]) -> int:
-    count = 0
-    with conn.cursor() as cur:
-        for idx, row in enumerate(rows):
-            normalized = normalize_row(row)
-            row_json = canonical_row_json(normalized)
-            h = row_hash(row_json)
-            cur.execute(
-                """
-                INSERT INTO sales_xlsx_rows (row_hash, import_id, sheet_name, row_index, data)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (row_hash)
-                DO UPDATE SET
-                  import_id = EXCLUDED.import_id,
-                  sheet_name = EXCLUDED.sheet_name,
-                  row_index = EXCLUDED.row_index,
-                  data = EXCLUDED.data,
-                  updated_at = now()
-                """,
-                (h, import_id, sheet_name, idx, psycopg2.extras.Json(normalized)),
+            INSERT INTO sales (
+              branch, sale_date, client, items, qty, unit_of_measure,
+              unit_price_usd, price_subtotal_with_tax, price_subtotal_with_tax_usd,
+              rate, invoice_number, guest_number, table_number, month, tax,
+              category, group_name, barcode, source_row_hash
             )
-            count += 1
+            VALUES (
+              %(branch)s, %(sale_date)s, %(client)s, %(items)s, %(qty)s, %(unit_of_measure)s,
+              %(unit_price_usd)s, %(price_subtotal_with_tax)s, %(price_subtotal_with_tax_usd)s,
+              %(rate)s, %(invoice_number)s, %(guest_number)s, %(table_number)s, %(month)s, %(tax)s,
+              %(category)s, %(group_name)s, %(barcode)s, %(source_row_hash)s
+            )
+            ON CONFLICT (source_row_hash)
+            DO UPDATE SET
+              branch = EXCLUDED.branch,
+              sale_date = EXCLUDED.sale_date,
+              client = EXCLUDED.client,
+              items = EXCLUDED.items,
+              qty = EXCLUDED.qty,
+              unit_of_measure = EXCLUDED.unit_of_measure,
+              unit_price_usd = EXCLUDED.unit_price_usd,
+              price_subtotal_with_tax = EXCLUDED.price_subtotal_with_tax,
+              price_subtotal_with_tax_usd = EXCLUDED.price_subtotal_with_tax_usd,
+              rate = EXCLUDED.rate,
+              invoice_number = EXCLUDED.invoice_number,
+              guest_number = EXCLUDED.guest_number,
+              table_number = EXCLUDED.table_number,
+              month = EXCLUDED.month,
+              tax = EXCLUDED.tax,
+              category = EXCLUDED.category,
+              group_name = EXCLUDED.group_name,
+              barcode = EXCLUDED.barcode,
+              last_synced_at = now(),
+              updated_at = now()
+            RETURNING (xmax = 0) AS inserted
+            """,
+            {**db_row, "source_row_hash": source_hash},
+        )
+        result = cur.fetchone()
+        return bool(result[0]) if result else True
+    
+
+def log_sync(conn, rows_processed: int, rows_inserted: int, rows_updated: int,
+             file_etag: Optional[str], file_modified: Optional[str],
+             status: str = "success", error_message: Optional[str] = None) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO sync_log (rows_processed, rows_inserted, rows_updated, file_etag, file_modified, status, error_message)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (rows_processed, rows_inserted, rows_updated, file_etag, file_modified, status, error_message),
+        )
     conn.commit()
-    return count
 
 
-def excel_to_rows(excel_bytes: bytes) -> Dict[str, list[Dict[str, Any]]]:
+def read_excel_first_sheet(excel_bytes: bytes) -> pd.DataFrame:
+    """Read the first sheet of the Excel file."""
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=True) as f:
         f.write(excel_bytes)
         f.flush()
-        sheets = pd.read_excel(f.name, sheet_name=None)
-
-    out: Dict[str, list[Dict[str, Any]]] = {}
-    for sheet_name, df in sheets.items():
-        df = df.where(pd.notnull(df), None)
-        out[str(sheet_name)] = df.to_dict(orient="records")
-    return out
+        # Read first sheet only
+        df = pd.read_excel(f.name, sheet_name=0)
+    return df
 
 
 def main() -> int:
@@ -244,22 +290,41 @@ def main() -> int:
     try:
         ensure_tables(conn)
 
-        latest_etag = get_latest_etag(conn, file_path)
-        if etag and latest_etag and etag == latest_etag:
-            print("No change detected (etag match). Skipping import.")
-            return 0
-
         excel_bytes = graph_download(token, content_url)
-        sheets = excel_to_rows(excel_bytes)
+        df = read_excel_first_sheet(excel_bytes)
 
-        import_id = insert_import(conn, file_path, etag, last_modified)
+        print(f"Excel columns found: {list(df.columns)}")
+        print(f"Total rows in Excel: {len(df)}")
 
-        total = 0
-        for sheet_name, rows in sheets.items():
-            total += upsert_rows(conn, import_id, sheet_name, rows)
+        rows_processed = 0
+        rows_inserted = 0
+        rows_updated = 0
 
-        print(f"Imported rows: {total} (import_id={import_id})")
+        for idx, pandas_row in df.iterrows():
+            excel_row = row_to_dict(pandas_row)
+            db_row = map_excel_to_db(excel_row)
+            source_hash = row_hash(excel_row)
+
+            inserted = upsert_sales_row(conn, db_row, source_hash)
+            rows_processed += 1
+            if inserted:
+                rows_inserted += 1
+            else:
+                rows_updated += 1
+
+        conn.commit()
+
+        log_sync(conn, rows_processed, rows_inserted, rows_updated, etag, last_modified)
+
+        print(f"✅ Sync complete: {rows_processed} rows processed ({rows_inserted} inserted, {rows_updated} updated)")
         return 0
+
+    except Exception as e:
+        try:
+            log_sync(conn, 0, 0, 0, None, None, status="error", error_message=str(e))
+        except Exception:
+            pass
+        raise
     finally:
         conn.close()
 
