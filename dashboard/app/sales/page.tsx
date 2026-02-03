@@ -3,6 +3,8 @@ import { CategoryChart } from '@/components/charts/CategoryChart';
 import { TopItemsChart } from '@/components/charts/TopItemsChart';
 import { RevenueChart } from '@/components/charts/RevenueChart';
 
+export const dynamic = 'force-dynamic';
+
 async function getCategoriesData() {
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
   const res = await fetch(`${baseUrl}/api/categories`, {

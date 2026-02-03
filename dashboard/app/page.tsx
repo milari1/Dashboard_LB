@@ -6,6 +6,8 @@ import { CategoryChart } from '@/components/charts/CategoryChart';
 import { TopItemsChart } from '@/components/charts/TopItemsChart';
 import { formatCurrency, formatNumber } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 async function getOverviewData() {
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
   const res = await fetch(`${baseUrl}/api/overview`, {

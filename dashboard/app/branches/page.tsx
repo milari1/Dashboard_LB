@@ -3,6 +3,8 @@ import { BranchChart } from '@/components/charts/BranchChart';
 import { formatCurrency, formatNumber } from '@/lib/db';
 import { Building2, DollarSign, ShoppingCart, TrendingUp } from 'lucide-react';
 
+export const dynamic = 'force-dynamic';
+
 async function getBranchesData() {
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
   const res = await fetch(`${baseUrl}/api/branches`, {

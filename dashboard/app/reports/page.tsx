@@ -1,6 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { FileText, Calendar, Building2, TrendingUp, DollarSign } from 'lucide-react';
 
+export const dynamic = 'force-dynamic';
+
 export default function ReportsPage() {
   const reports = [
     {
