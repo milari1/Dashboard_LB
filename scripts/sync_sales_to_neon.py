@@ -231,7 +231,7 @@ def batch_upsert_sales(conn, batch: List[Tuple[Dict[str, Any], str]]) -> Tuple[i
             )
             """,
             values,
-            page_size=500,
+            page_size=1000,
         )
 
         # Merge temp → sales
@@ -360,7 +360,7 @@ def main() -> int:
         rows_inserted = 0
         rows_updated = 0
 
-        BATCH_SIZE = 500
+        BATCH_SIZE = 10000
         batch = []
 
         print(f"⚙️  Processing in batches of {BATCH_SIZE}...")
