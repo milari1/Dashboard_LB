@@ -1,0 +1,78 @@
+========================================
+  CATERING DASHBOARD - QUICK START
+========================================
+
+Your dashboard is ready! Follow these steps:
+
+STEP 1: Set Up Environment
+---------------------------
+1. Open the 'dashboard' folder
+2. Create a file named: .env.local
+3. Add this line (replace with your actual Neon connection):
+
+POSTGRES_URL="postgresql://user:password@host/database?sslmode=require"
+DATABASE_URL="postgresql://user:password@host/database?sslmode=require"
+
+Get your connection string from: https://console.neon.tech/
+
+
+STEP 2: Run the Server
+-----------------------
+Open terminal in the 'dashboard' folder and run:
+
+npm run dev
+
+Wait for "Ready" message, then open:
+http://localhost:3000
+
+
+STEP 3: Test the Dashboard
+---------------------------
+✓ Overview page - KPIs and charts
+✓ Branches page - Compare 5 branches
+✓ Sales page - Category analysis
+✓ Data page - Search & export
+✓ Reports page - Templates
+
+
+TROUBLESHOOTING
+---------------
+• "Database error" → Check .env.local connection string
+• "Module error" → Run: npm install
+• "Port in use" → Run: npm run dev -- -p 3001
+
+
+DEPLOYMENT (After Testing)
+---------------------------
+1. Go to: https://vercel.com
+2. Import your GitHub repository
+3. Set root directory: dashboard
+4. Add environment variables
+5. Deploy!
+
+
+WHAT'S INCLUDED
+---------------
+✓ Real-time sales data from Neon
+✓ Interactive charts and graphs
+✓ 5 branches comparison
+✓ Search and export functionality
+✓ Responsive mobile design
+✓ Automatic daily data sync (12:00 AM)
+
+
+FILES CREATED
+-------------
+• GitHub Action updated: .github/workflows/sync-sales-to-neon.yml
+• Dashboard app: dashboard/ (complete Next.js app)
+• Documentation: DASHBOARD_DEPLOYMENT.md, SETUP.md
+
+
+QUESTIONS?
+----------
+Check the README files in the dashboard folder for
+detailed documentation.
+
+========================================
+         ENJOY YOUR DASHBOARD! 🎉
+========================================
