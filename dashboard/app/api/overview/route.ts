@@ -3,10 +3,18 @@ import { sql } from '@vercel/postgres';
 import { KPIMetrics } from '@/lib/types';
 import { calculatePercentageChange, getCurrentMonth, getPreviousMonth } from '@/lib/utils';
 
-export const revalidate = 300; // Revalidate every 5 minutes
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
+    // Check if database connection is available
+    if (!process.env.POSTGRES_URL && !process.env.DATABASE_URL) {
+      console.error('Missing database connection string');
+      return NextResponse.json(
+        { error: 'Database connection not configured. Please set POSTGRES_URL or DATABASE_URL environment variable.' },
+        { status: 500 }
+      );
+    }
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');

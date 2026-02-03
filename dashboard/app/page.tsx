@@ -9,48 +9,81 @@ import { formatCurrency, formatNumber } from '@/lib/db';
 export const dynamic = 'force-dynamic';
 
 async function getOverviewData() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/overview`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return null;
-  return res.json();
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    const res = await fetch(`${baseUrl}/api/overview`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      console.error('Failed to fetch overview:', res.statusText);
+      return null;
+    }
+    return res.json();
+  } catch (error) {
+    console.error('Error fetching overview:', error);
+    return null;
+  }
 }
 
 async function getTrendsData() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/trends?days=30`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-  return res.json();
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    const res = await fetch(`${baseUrl}/api/trends?days=30`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch (error) {
+    console.error('Error fetching trends:', error);
+    return [];
+  }
 }
 
 async function getBranchesData() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/branches`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-  return res.json();
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    const res = await fetch(`${baseUrl}/api/branches`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch (error) {
+    console.error('Error fetching branches:', error);
+    return [];
+  }
 }
 
 async function getCategoriesData() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/categories`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-  return res.json();
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    const res = await fetch(`${baseUrl}/api/categories`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    return [];
+  }
 }
 
 async function getTopItemsData() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/top-items?limit=10`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-  return res.json();
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    const res = await fetch(`${baseUrl}/api/top-items?limit=10`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch (error) {
+    console.error('Error fetching top items:', error);
+    return [];
+  }
 }
 
 export default async function HomePage() {
