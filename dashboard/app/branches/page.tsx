@@ -1,21 +1,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BranchChart } from '@/components/charts/BranchChart';
 import { formatCurrency, formatNumber } from '@/lib/db';
+import { getBranchMetrics } from '@/lib/queries';
 import { Building2, DollarSign, ShoppingCart, TrendingUp } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
-async function getBranchesData() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/branches`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-  return res.json();
-}
-
 export default async function BranchesPage() {
-  const branches = await getBranchesData();
+  const branches = await getBranchMetrics();
 
   return (
     <div className="space-y-6">

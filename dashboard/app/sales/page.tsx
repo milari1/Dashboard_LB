@@ -2,41 +2,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CategoryChart } from '@/components/charts/CategoryChart';
 import { TopItemsChart } from '@/components/charts/TopItemsChart';
 import { RevenueChart } from '@/components/charts/RevenueChart';
+import { getCategoryMetrics, getTopItems, getTrends } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 
-async function getCategoriesData() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/categories`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-  return res.json();
-}
-
-async function getTopItemsData() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/top-items?limit=10`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-  return res.json();
-}
-
-async function getTrendsData() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/trends?days=90`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-  return res.json();
-}
-
 export default async function SalesPage() {
   const [categories, topItems, trends] = await Promise.all([
-    getCategoriesData(),
-    getTopItemsData(),
-    getTrendsData(),
+    getCategoryMetrics(),
+    getTopItems(10),
+    getTrends(90),
   ]);
 
   return (

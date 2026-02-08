@@ -5,94 +5,17 @@ import { BranchChart } from '@/components/charts/BranchChart';
 import { CategoryChart } from '@/components/charts/CategoryChart';
 import { TopItemsChart } from '@/components/charts/TopItemsChart';
 import { formatCurrency, formatNumber } from '@/lib/db';
+import { getOverviewMetrics, getTrends, getBranchMetrics, getCategoryMetrics, getTopItems } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 
-async function getOverviewData() {
-  try {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-    const res = await fetch(`${baseUrl}/api/overview`, {
-      cache: 'no-store',
-    });
-    if (!res.ok) {
-      console.error('Failed to fetch overview:', res.statusText);
-      return null;
-    }
-    return res.json();
-  } catch (error) {
-    console.error('Error fetching overview:', error);
-    return null;
-  }
-}
-
-async function getTrendsData() {
-  try {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-    const res = await fetch(`${baseUrl}/api/trends?days=30`, {
-      cache: 'no-store',
-    });
-    if (!res.ok) return [];
-    return res.json();
-  } catch (error) {
-    console.error('Error fetching trends:', error);
-    return [];
-  }
-}
-
-async function getBranchesData() {
-  try {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-    const res = await fetch(`${baseUrl}/api/branches`, {
-      cache: 'no-store',
-    });
-    if (!res.ok) return [];
-    return res.json();
-  } catch (error) {
-    console.error('Error fetching branches:', error);
-    return [];
-  }
-}
-
-async function getCategoriesData() {
-  try {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-    const res = await fetch(`${baseUrl}/api/categories`, {
-      cache: 'no-store',
-    });
-    if (!res.ok) return [];
-    return res.json();
-  } catch (error) {
-    console.error('Error fetching categories:', error);
-    return [];
-  }
-}
-
-async function getTopItemsData() {
-  try {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-    const res = await fetch(`${baseUrl}/api/top-items?limit=10`, {
-      cache: 'no-store',
-    });
-    if (!res.ok) return [];
-    return res.json();
-  } catch (error) {
-    console.error('Error fetching top items:', error);
-    return [];
-  }
-}
-
 export default async function HomePage() {
   const [overview, trends, branches, categories, topItems] = await Promise.all([
-    getOverviewData(),
-    getTrendsData(),
-    getBranchesData(),
-    getCategoriesData(),
-    getTopItemsData(),
+    getOverviewMetrics(),
+    getTrends(30),
+    getBranchMetrics(),
+    getCategoryMetrics(),
+    getTopItems(10),
   ]);
 
   return (
